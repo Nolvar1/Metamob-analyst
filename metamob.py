@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 import os
 import matplotlib.pyplot as plt
 import argparse
+from datetime import datetime
 
 USER_LIST_FILE_NAME = "users.json"
 USER_MONSTERS_FILE = "monsters.json"
@@ -411,6 +412,29 @@ def print_monster_extremes(monster_counts, n=10, verbose=True):
         else:
             print(f"#{i+1:<2} {monster:<{max_archi_width}} - {info['data']['souszone']} ({info['data']['zone']})")
 
+def print_user_monster_list_data(player_monster_list, full_user_data):
+    def len_list(f):
+        l = []
+        for p, d in full_user_data.items():
+            if p in [p for p, _ in player_monster_list] and f in d:
+                l.append(len(d[f]))
+        return max(l)
+
+    max_metam_pseudo_width = max(len(p) for p, _ in player_monster_list)
+    max_monster_width = max(len(m) for _, m in player_monster_list)
+    max_pseudo_width = len_list('pseudo')
+    max_link_width = len_list('lien')
+    sl = {}
+    for p, m in player_monster_list:
+        if p in full_user_data and 'pseudo' in full_user_data[p]:
+            d = full_user_data[p]
+            sl[d['derniere_connexion']] = f"{m:{max_monster_width}} - {d['pseudo']:{max_pseudo_width}} (metamob: {p:{max_metam_pseudo_width}}) - {d['lien']:{max_link_width}} - Last loggin: {d['derniere_connexion']}"
+        else:
+            sl['2000-10-10 12:12:12'] = f"{m:{max_monster_width}} - metamob: {p} - no data"
+    sorted_keys = sorted(sl.keys(), key=lambda s: datetime.strptime(s, "%Y-%m-%d %H:%M:%S"))
+    for key in sorted_keys:
+        print(f"{sl[key]}")
+
 def find_players_proposing(monster_name, aggregated_data):
     """
     Searches for all players that are proposing (selling/trading) a given monster.
@@ -431,9 +455,9 @@ def find_players_proposing(monster_name, aggregated_data):
     for username, monsters in aggregated_data.items():
         for monster in monsters:
             # Compare monster names case-insensitively.
-            if monster.get("nom", "").lower() == monster_name.lower() and str(monster.get("propose", "0")) == "1":
+            if monster_name.lower() in monster.get("nom", "").lower() and str(monster.get("propose", "0")) == "1":
                 #result.append({"username": username, "monster": monster})
-                result.append(username)
+                result.append((username, monster.get("nom", "")))
     return result
 
 
@@ -456,9 +480,10 @@ def find_players_researching(monster_name, aggregated_data):
     result = []
     for username, monsters in aggregated_data.items():
         for monster in monsters:
-            if monster.get("nom", "").lower() == monster_name.lower() and str(monster.get("recherche", "0")) == "1":
+            #print(monster["nom"], monster_name, monster["recherche"])
+            if monster_name.lower() in monster.get("nom", "").lower() and str(monster.get("recherche", "0")) == "1":
                 #result.append({"username": username, "monster": monster})
-                result.append(username)
+                result.append((username, monster.get("nom", "")))
     return result
 
 def compare_monster_files(old_data, new_data, proposed=True):
@@ -627,7 +652,7 @@ def detect_unbalanced_players(data, factor=3):
         avg = (sum(non_zero_counts) / len(non_zero_counts)) if non_zero_counts else 0
 
         # Define "high" as any monster count greater than factor * avg.
-        high_monsters = [f"{mon} ({player_counts[mon]})" 
+        high_monsters = [f"{mon} ({player_counts[mon]})"
                          for mon, count in player_counts.items() if count > factor * avg]
         # Missing monsters are those with a count of 0.
         missing_monsters = [f"{mon} (0)" for mon, count in player_counts.items() if count == 0]
@@ -668,7 +693,8 @@ def update_user_data_from_api(users, output_file=USER_LIST_FILE_NAME):
         users_data = {}
 
     # Iterate over each user in the provided dictionary.
-    for username in users:
+    nb_users = len(users)
+    for i, username in enumerate(users):
         url = f"{base_url}/{username}"
         try:
             response = requests.get(url, headers=headers)
@@ -681,11 +707,11 @@ def update_user_data_from_api(users, output_file=USER_LIST_FILE_NAME):
             try:
                 user_data = response.json()
                 users_data[username] = user_data
-                logger.info("Updated data for user '%s'.", username)
+                logger.info("Updated data for user '%s' - %d/%d", username, i+1, nb_users)
             except json.JSONDecodeError:
                 logger.error("Failed to decode JSON for user '%s'.", username)
         else:
-            logger.error("API request failed for user '%s' (Status: %s). Response: %s", 
+            logger.error("API request failed for user '%s' (Status: %s). Response: %s",
                          username, response.status_code, response.text)
 
     # Write the updated users dictionary to the output file.
@@ -742,7 +768,7 @@ def main():
     parser_refresh_users.add_argument(
         "--filename", "-f",
         type=str,
-        default=USER_MONSTERS_FILE,
+        default=USER_LIST_FILE_NAME,
         help="Filename to update"
     )
     parser_refresh_monsters = subparsers.add_parser(
@@ -804,11 +830,18 @@ def main():
     # Dispatch to the appropriate function based on the subcommand.
     if args.command == "find_proposing":
         monsters = get_local_user_monsters()
-        find_players_proposing(args.monster, monsters)
+        playerslist = find_players_proposing(args.monster, monsters)
+        users = get_local_users()
+        logger.info("Players proposing {}:".format(args.monster))
+        print_user_monster_list_data(playerslist, users)
         #print(find_players_proposing("Tronquette la Réduite", monsters))
     elif args.command == "find_researching":
         monsters = get_local_user_monsters()
-        find_players_researching(args.monster, monsters)
+        #print(monsters)
+        playerslist = find_players_researching(args.monster, monsters)
+        users = get_local_users()
+        logger.info("Players searching {}:".format(args.monster))
+        print_user_monster_list_data(playerslist, users)
         #print(find_players_researching("Tronquette la Réduite", monsters))
     elif args.command == "scrap_users":
         scrap_user_list(output_file=args.filename)
