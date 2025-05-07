@@ -48,4 +48,4 @@ L'endpoint API pour recuperer la liste des utilisateurs n'est pas encore disponi
 
 ## Est-ce que je risque de DDOS metamob ?
 
-L'API est limite a 60 appels/minutes. De base le script est configurer pour ne pas exceder cette limite et vous etes tranquille.
+L'API est limitee a 60 appels/minute. De base le script est configure pour ne pas exceder cette limite et vous etes tranquille.
